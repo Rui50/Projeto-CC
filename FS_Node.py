@@ -14,16 +14,16 @@ class FS_Node:
         self.port = port
         self.folder_to_share = folder_to_share
         self.node_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.shared_files = self.get_shared_files() if folder_to_share else {}
+        self.shared_files = self.get_shared_files() if folder_to_share else {}  # caso de nao ter pasta
 
-    # BLOCK RELATED FUNCTIONS
+    # a partir do folder pega nos ficheiros que vai partilhar
     def get_shared_files(self):
         shared_files = {}
         try:
             files = os.listdir(self.folder_to_share)
             for file in files:
                 file_path = os.path.join(self.folder_to_share, file)
-                if os.path.isfile(file_path):  # Check if it's a file (not a directory)
+                if os.path.isfile(file_path):  # verifica se é um ficheiro
                     blocks_count = self.calculate_blocks_per_file(file_path)
                     shared_files[file] = blocks_count
         except FileNotFoundError:
@@ -74,15 +74,16 @@ class FS_Node:
                 self.send_list_message()  # envia a mensagem para listar os ficheiros
                 self.receive_list_message()  # lidar com a mensagem que recebe
             if command.startswith("GET"):
-                file_name = command.split(" ")[1]  # Extract the file name from the command
-                # self.send_get_message(file_name)
+                file_name = command.split(" ")[1]  # Extrai o nome do ficheiro do comando
+                self.send_get_message(file_name)
+                self.receive_locate_message()
 
     # FUNCOES PARA ENVIAR E RECEBER AS MESSAGES
     def send_register_message(self):
         node_info = {
             "address": self.address,
-            "port": 9090,  # Replace with actual port
-            "files_info": self.get_shared_files_info()  # Include file info
+            "port": 9090,
+            "files_info": self.get_shared_files_info() 
         }
         register_message = FS_TrackProtocol.create_register_message(node_info)
         self.node_socket.send(register_message.encode())
@@ -91,11 +92,19 @@ class FS_Node:
         list_message = FS_TrackProtocol.create_list_request_message()
         self.node_socket.send(list_message.encode())
 
+    def send_get_message(self, file_name):
+        get_message = FS_TrackProtocol.create_get_message(file_name)
+        self.node_socket.send(get_message.encode())
+
     # LIDAR COM MENSAGENS RECEBIDAS DO TRACKER
 
     def receive_list_message(self):
         received_message = self.node_socket.recv(1024).decode()
         print(f"{received_message}")  # Print the shared files received from the tracker
+
+    def receive_locate_message(self):
+        received_message = self.node_socket.recv(1024).decode()
+        print(f"{received_message}")
 
     # FECHAR A CONEXAO
     def close_connection(self):
