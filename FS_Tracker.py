@@ -27,7 +27,7 @@ class FS_Tracker:
     # FUNCAO RESPONSAVEL POR LIDAR COM AS MENSAGENS DO NODO
     def handle_node_connection(self, client_socket, address):
         node_id = f"{address[0]}:{address[1]}"
-        shared_files = {}  # ficheiros que estão a ser partilhados
+        shared_files = {}  # Files being shared
 
         try:
             while True:
@@ -37,36 +37,31 @@ class FS_Tracker:
                 if parsed_message["type"] == "REG":
                     node_info = parsed_message["node_info"]
                     self.connected_nodes[node_id] = node_info
-                    print(f"Registrado FS_Node: {node_info}")
+                    print(f"Registered FS_Node: {node_info}")
 
-                    # Extract shared files from the node_info
+                    # Check if shared_files present in node_info
                     if "shared_files" in node_info:
                         shared_files = node_info["shared_files"]
-                        self.save_shared_files(node_id, shared_files)  # save aos ficheiros do nodo
-                        self.update_shared_files(shared_files)  # atualiza a lista de ficheiros disponiveis)
+                        self.save_shared_files(node_id, shared_files)
+                        self.update_shared_files(shared_files)
 
                 elif parsed_message["type"] == "LIST":
-                    # envia a lista de ficheiros que estão a ser partilhados
+                    # Send the list of files being shared
                     self.list_files_being_shared(client_socket)
 
         except ConnectionResetError:
-            print(f"Conexão encerrada com {address[0]}:{address[1]}")
+            print(f"Connection closed with {address[0]}:{address[1]}")
             if node_id in self.connected_nodes:
-                # remove da lista de nodes conectados
                 del self.connected_nodes[node_id]
-            #remove os ficheiros da lista de partilha
             self.remove_shared_files(node_id)
             client_socket.close()
 
     # FUNCAO RESPONSAVEL POR CRIAR E ENVIAR A MENSAGEM DE LISTAGEM DE FICHEIROS A SER ENVIADOS
     def list_files_being_shared(self, client_socket):
-        if self.current_sharing_files:
-            files_info = self.current_sharing_files
-            message = FS_TrackProtocol.create_list_send_message(files_info)
-            client_socket.send(message.encode())
-        else:
-            message = FS_TrackProtocol.create_list_send_message({})
-            client_socket.send(message.encode())
+        # Prepare message to send based on shared_files
+        files_info = self.current_sharing_files if self.current_sharing_files else {}
+        message = FS_TrackProtocol.create_list_send_message(files_info)
+        client_socket.send(message.encode())
 
     # FUNCAO QUE DA UPDATE AOS FICHEIROS QUE ESTAO A SER PARTILHADOS
     # adiciona os "novos" ficheiros a lista de partilha
@@ -95,21 +90,25 @@ class FS_Tracker:
             node_info = {
                 "address": parts[1],
                 "port": int(parts[2]),
-                "shared_files": {}  # onde os shared files vao estar stored
+                "shared_files": {}  # Dictionary to store shared files
             }
             # Verifica se tem ficheiros a partilhar
             if len(parts) > 3:
                 file_info = parts[3].split(',')
                 for file_data in file_info:
-                    file_name, block_count = file_data.split(':')
-                    node_info["shared_files"][file_name] = int(block_count)
+                    # para verificar se tem file_name : numero blocos
+                    file_components = file_data.split(':')
+                    if len(file_components) == 2:
+                        file_name, block_count = file_components
+                        node_info["shared_files"][file_name] = int(block_count)
 
             return {"type": message_type, "node_info": node_info}
 
         elif message_type == "LIST":
             return {"type": message_type}
+
         else:
-            return {"type": message_type}
+            return {"type": message_type, "data": message}
 
 
 if __name__ == "__main__":

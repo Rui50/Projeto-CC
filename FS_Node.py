@@ -14,7 +14,7 @@ class FS_Node:
         self.port = port
         self.folder_to_share = folder_to_share
         self.node_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.shared_files = self.get_shared_files()  # Retrieve the list of shared files with blocks
+        self.shared_files = self.get_shared_files() if folder_to_share else {}
 
     # BLOCK RELATED FUNCTIONS
     def get_shared_files(self):
@@ -40,7 +40,6 @@ class FS_Node:
         else:
             blocks = file_size // MTU
         return blocks
-
 
     def print_shared_files(self):
         for file_name, blocks_count in self.shared_files.items():
@@ -72,8 +71,8 @@ class FS_Node:
         while True:
             command = input("Enter a command (e.g., GET <file_name>, LIST): ")
             if command.startswith("LIST"):
-                self.send_list_message()    # envia a mensagem para listar os ficheiros
-                self.receive_list_message() # lidar com a mensagem que recebe
+                self.send_list_message()  # envia a mensagem para listar os ficheiros
+                self.receive_list_message()  # lidar com a mensagem que recebe
             if command.startswith("GET"):
                 file_name = command.split(" ")[1]  # Extract the file name from the command
                 # self.send_get_message(file_name)
@@ -104,15 +103,15 @@ class FS_Node:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python FS_Node.py <Address> <Port> <Folder_To_Share>")
+    if len(sys.argv) < 3:
+        print("Usage: python FS_Node.py <Address> <Port> [Folder_To_Share]")
         sys.exit(1)
 
     address = sys.argv[1]
     port = int(sys.argv[2])
-    folder_to_share = sys.argv[3]
+    folder_to_share = sys.argv[3] if len(sys.argv) >= 4 else None
 
-    if not os.path.isdir(folder_to_share):
+    if folder_to_share and not os.path.isdir(folder_to_share):
         print("Error: The specified folder does not exist.")
         sys.exit(1)
 

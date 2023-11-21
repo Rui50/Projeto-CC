@@ -28,6 +28,6 @@ class FS_TrackProtocol:
     def create_list_send_message(files_info):
         message = "LIST"
         if files_info:
-            file_list = ','.join([f"{file_name}:{blocks}" for file_name, blocks in files_info.items()])
+            file_list = ', '.join([f"{file_name}:{blocks}" for file_name, blocks in files_info.items()])
             message += f"|{file_list}"
         return message
