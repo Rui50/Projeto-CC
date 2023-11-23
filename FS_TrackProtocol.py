@@ -7,14 +7,19 @@ class FS_TrackProtocol:
 
         # construção de mensagem de registo
         message = f"REG|{address}|{port}|"
-        for file_name, num_blocks in files_info.items():
-            message += f"{file_name}:{num_blocks},"
+        for file_name, block_list in files_info.items():
+            message += f"{file_name}:[{','.join(map(str, block_list))}]/"
 
+        # remover ultima virgula
+        if message.endswith('/'):
+            message = message[:-1]
+
+        print(message)
         return message.rstrip(',')
 
     @staticmethod
-    def create_get_message(file_name):
-        return f"GET|{file_name}"
+    def create_locate_message(file_name):
+        return f"LOCATE|{file_name}"
 
     @staticmethod
     def create_located_message(address, port, file_name, blocks):
@@ -28,6 +33,14 @@ class FS_TrackProtocol:
     def create_list_send_message(files_info):
         message = "LIST"
         if files_info:
-            file_list = ', '.join([f"{file_name}:{blocks}" for file_name, blocks in files_info.items()])
+            file_list = '/'.join([f"{file_name}:{blocks}" for file_name, blocks in files_info.items()])
             message += f"|{file_list}"
+        return message
+    @staticmethod
+    def create_get_message(file_name):
+        return f"GET|{file_name}"
+
+    @staticmethod
+    def create_request_message(file_name, blocks):
+        message = f"REQUEST|{file_name}:{blocks}"
         return message

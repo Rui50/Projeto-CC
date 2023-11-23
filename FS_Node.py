@@ -4,8 +4,8 @@ import sys
 
 from FS_TrackProtocol import FS_TrackProtocol  # FS_TrackProtocol
 
-MTU = 1020  # 4 bytes to number the block
-
+MTU = 1024  # restantes 4 bytes para numerar os blocos
+BLOCK_ID_SIZE = 4
 
 class FS_Node:
 
@@ -24,8 +24,8 @@ class FS_Node:
             for file in files:
                 file_path = os.path.join(self.folder_to_share, file)
                 if os.path.isfile(file_path):  # verifica se é um ficheiro
-                    blocks_count = self.calculate_blocks_per_file(file_path)
-                    shared_files[file] = blocks_count
+                    blocks = self.calculate_blocks_per_file(file_path)
+                    shared_files[file] = blocks
         except FileNotFoundError:
             print("Error: The specified folder does not exist.")
             sys.exit(1)
@@ -35,10 +35,33 @@ class FS_Node:
     # NAO EFETUA A DIVISAO EM BLOCKS EM SI
     def calculate_blocks_per_file(self, file_path):
         file_size = os.path.getsize(file_path)
-        if file_size % MTU != 0:
-            blocks = file_size // MTU + 1
-        else:
-            blocks = file_size // MTU
+        block_size = MTU - BLOCK_ID_SIZE
+        numero_blocos = file_size // block_size
+        resto = file_size % block_size
+
+        blocks = []
+        for block_id in range(numero_blocos):
+            blocks.append(block_id)
+
+        # adiciona o ultimo bloco se restar data
+        if resto > 0:
+            blocks.append(numero_blocos)
+
+        return blocks
+
+    def divide_file_into_blocks(self, file_path):
+        blocks = []
+        block_tag = 0
+
+        with open(file_path, 'rb') as file:
+            while True:
+                data = file.read(MTU - BLOCK_ID_SIZE)
+                if not data:
+                    break
+
+                block = block_tag.to_bytes(BLOCK_ID_SIZE, 'big') + data
+                blocks.append(block)
+                block_tag += 1
         return blocks
 
     def print_shared_files(self):
@@ -66,24 +89,41 @@ class FS_Node:
         except ConnectionRefusedError:
             print("Erro: Não foi possível conectar ao FS_Tracker.")
 
+    def connect_to_node(self):
+        # falta ligar com o caso de ser ele a enviar ou ser ele a receber
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.bind(('0.0.0.0', 9090))
+        while True:
+            data, addr = udp_socket.recvfrom(1024)
+
+
     # RESPONSAVEL POR OUVIR E LIDAR COM INPUTS DO UTILIZADOR
     def listen_for_commands(self):
         while True:
-            command = input("Enter a command (e.g., GET <file_name>, LIST): ")
+            command = input("Enter a command (e.g., GET <file_name>, LIST, LOCATE): ")
             if command.startswith("LIST"):
                 self.send_list_message()  # envia a mensagem para listar os ficheiros
                 self.receive_list_message()  # lidar com a mensagem que recebe
-            if command.startswith("GET"):
+            if command.startswith("LOCATE"):
                 file_name = command.split(" ")[1]  # Extrai o nome do ficheiro do comando
-                self.send_get_message(file_name)
+
+                self.send_locate_message(file_name)
                 self.receive_locate_message()
+            if command.startswith("GET"):
+
+                print(1)
+                #envia a mensagem get
+
+    # RESPONSAVEL POR LIDAR COM OS REQUESTS
+    def listen_for_requests(self):
+        print(1)
 
     # FUNCOES PARA ENVIAR E RECEBER AS MESSAGES
     def send_register_message(self):
         node_info = {
             "address": self.address,
             "port": 9090,
-            "files_info": self.get_shared_files_info() 
+            "files_info": self.get_shared_files_info()
         }
         register_message = FS_TrackProtocol.create_register_message(node_info)
         self.node_socket.send(register_message.encode())
@@ -91,6 +131,10 @@ class FS_Node:
     def send_list_message(self):
         list_message = FS_TrackProtocol.create_list_request_message()
         self.node_socket.send(list_message.encode())
+
+    def send_locate_message(self, file_name):
+        locate_message = FS_TrackProtocol.create_locate_message(file_name)
+        self.node_socket.send(locate_message.encode())
 
     def send_get_message(self, file_name):
         get_message = FS_TrackProtocol.create_get_message(file_name)
@@ -100,7 +144,7 @@ class FS_Node:
 
     def receive_list_message(self):
         received_message = self.node_socket.recv(1024).decode()
-        print(f"{received_message}")  # Print the shared files received from the tracker
+        print(f"{received_message}")
 
     def receive_locate_message(self):
         received_message = self.node_socket.recv(1024).decode()
@@ -109,7 +153,6 @@ class FS_Node:
     # FECHAR A CONEXAO
     def close_connection(self):
         self.node_socket.close()
-
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

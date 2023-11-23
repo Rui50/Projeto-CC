@@ -3,6 +3,35 @@ import threading
 
 from FS_TrackProtocol import FS_TrackProtocol
 
+# transforma uma string num dicionario
+def string_to_dict(input_string):
+
+    pairs = input_string.split('/')
+
+    dicionario = {}
+
+    # Iterating through each pair in the list
+    for pair in pairs:
+        # Splitting each pair by colon to separate key and value
+        parts = pair.split(':')
+
+        # Checking if the pair has both key and value
+        if len(parts) == 2:
+            key, value = parts
+            # Processing the key
+            key = key.strip().strip('"')  # Removing spaces and quotes from the key
+
+            # Processing the value
+            if value == '[]':
+                dicionario[key] = []
+            else:
+                # Removing brackets from the value and converting it to a list
+                value = value.strip().strip('[]')
+                value = [int(num) for num in value.split(',') if num]  # Converting to integers
+                dicionario[key] = value
+
+    return dicionario
+
 
 class FS_Tracker:
     def __init__(self, host, port):
@@ -49,7 +78,7 @@ class FS_Tracker:
                     message = self.list_files_being_shared(client_socket)
                     client_socket.send(message.encode())
 
-                elif parsed_message["type"] == "GET":
+                elif parsed_message["type"] == "LOCATE":
                     file_name = parsed_message["file_name"]
                     message = self.get_file_details_from_node(file_name)
                     if message is None:
@@ -72,6 +101,7 @@ class FS_Tracker:
 
     # FUNCAO QUE DA UPDATE AOS FICHEIROS QUE ESTAO A SER PARTILHADSO
     # adiciona os "novos" ficheiros a lista de partilha
+
     def update_shared_files(self, shared_files):
         self.current_sharing_files.update(shared_files)
 
@@ -87,7 +117,7 @@ class FS_Tracker:
                 port = self.connected_nodes[nodo_id]["port"]
                 file = file_name
                 blocks = self.connected_nodes[nodo_id]["shared_files"][file_name]
-                message = FS_TrackProtocol.create_located_message(address, port, file, blocks)
+                message = FS_TrackProtocol.create_located_message(address, port, file, len(blocks))
                 return message
 
     # REMOVE FICHEIROS DE UM NODO DISCONECTADO DA LISTA DE CURRENTLY SHARING
@@ -101,6 +131,7 @@ class FS_Tracker:
     # FUNCAO QUE FAZ O PARSING DA MENSAGEM
     @staticmethod
     def parse_message(message):
+
         parts = message.split('|')
         message_type = parts[0]
 
@@ -108,24 +139,20 @@ class FS_Tracker:
             node_info = {
                 "address": parts[1],
                 "port": int(parts[2]),
-                "shared_files": {}  # Dictionary to store shared files
+                "shared_files": {}  # Initialize an empty dictionary to store shared files
             }
-            # Verifica se tem ficheiros a partilhar
-            if len(parts) > 3:
-                file_info = parts[3].split(',')
-                for file_data in file_info:
-                    # para verificar se tem file_name : numero blocos
-                    file_components = file_data.split(':')
-                    if len(file_components) == 2:
-                        file_name, block_count = file_components
-                        node_info["shared_files"][file_name] = int(block_count)
-
+            dicionario = string_to_dict(parts[3])
+            node_info["shared_files"] = dicionario
             return {"type": message_type, "node_info": node_info}
 
         elif message_type == "LIST":
             return {"type": message_type}
 
         elif message_type == "GET":
+            file_name = parts[1]
+            return {"type": message_type, "file_name": file_name}
+
+        elif message_type == "LOCATE":
             file_name = parts[1]
             return {"type": message_type, "file_name": file_name}
 
