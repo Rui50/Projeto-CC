@@ -1,11 +1,16 @@
 import os
 import socket
 import sys
+import re
+import threading
+import time
 
+from FS_TransferProtocol import FS_TransferProtocol
 from FS_TrackProtocol import FS_TrackProtocol  # FS_TrackProtocol
 
 MTU = 1024  # restantes 4 bytes para numerar os blocos
 BLOCK_ID_SIZE = 4
+
 
 class FS_Node:
 
@@ -60,6 +65,7 @@ class FS_Node:
                     break
 
                 block = block_tag.to_bytes(BLOCK_ID_SIZE, 'big') + data
+                print(block)
                 blocks.append(block)
                 block_tag += 1
         return blocks
@@ -84,21 +90,10 @@ class FS_Node:
 
             self.send_register_message()
             self.print_shared_files()
-            self.listen_for_commands()
 
         except ConnectionRefusedError:
             print("Erro: Não foi possível conectar ao FS_Tracker.")
 
-    def connect_to_node(self):
-        # falta ligar com o caso de ser ele a enviar ou ser ele a receber
-        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_socket.bind(('0.0.0.0', 9090))
-        while True:
-            data, addr = udp_socket.recvfrom(1024)
-
-
-    # RESPONSAVEL POR OUVIR E LIDAR COM INPUTS DO UTILIZADOR
-    def listen_for_commands(self):
         while True:
             command = input("Enter a command (e.g., GET <file_name>, LIST, LOCATE): ")
             if command.startswith("LIST"):
@@ -106,13 +101,29 @@ class FS_Node:
                 self.receive_list_message()  # lidar com a mensagem que recebe
             if command.startswith("LOCATE"):
                 file_name = command.split(" ")[1]  # Extrai o nome do ficheiro do comando
-
                 self.send_locate_message(file_name)
                 self.receive_locate_message()
             if command.startswith("GET"):
+                file_name = command.split(" ")[1]
+                self.send_get_message(file_name)
+                info = self.receive_get_message()
 
-                print(1)
-                #envia a mensagem get
+    # RESPONSAVEL POR OUVIR E LIDAR COM INPUTS DO UTILIZADOR
+    # def listen_for_commands(self):
+    #    while True:
+    #        command = input("Enter a command (e.g., GET <file_name>, LIST, LOCATE): ")
+    #        if command.startswith("LIST"):
+    #            self.send_list_message()  # envia a mensagem para listar os ficheiros
+    #            self.receive_list_message()  # lidar com a mensagem que recebe
+    #        if command.startswith("LOCATE"):
+    #            file_name = command.split(" ")[1]  # Extrai o nome do ficheiro do comando
+
+    #            self.send_locate_message(file_name)
+    #            self.receive_locate_message()
+    #        if command.startswith("GET"):
+    #            file_name = command.split(" ")[1]
+    #            self.send_get_message(file_name)
+    #            info = self.receive_get_message()
 
     # RESPONSAVEL POR LIDAR COM OS REQUESTS
     def listen_for_requests(self):
@@ -143,16 +154,125 @@ class FS_Node:
     # LIDAR COM MENSAGENS RECEBIDAS DO TRACKER
 
     def receive_list_message(self):
-        received_message = self.node_socket.recv(1024).decode()
+        received_message = self.node_socket.recv(MTU).decode()
         print(f"{received_message}")
 
     def receive_locate_message(self):
-        received_message = self.node_socket.recv(1024).decode()
+        received_message = self.node_socket.recv(MTU).decode()
         print(f"{received_message}")
+
+    def receive_get_message(self):
+        received_message = self.node_socket.recv(MTU).decode()
+        blocks_info, file_name = self.parse_get_response(received_message)
+        self.decide_blocks_to_download(blocks_info, file_name)
+        return received_message
+
+    def parse_get_response(self, response):
+        blocks_info = {}
+        file_name = None
+
+        responses = response.split('|')[1:]
+
+        for resp in responses:
+            parts = resp.split(' with blocks ')
+            node_info = parts[0]
+            blocks = [int(block) for block in parts[1].split(',')]
+            blocks_info[node_info.split('-')[-1]] = blocks  # Extracting just the IP and node
+            if not file_name:
+                file_name = node_info.split('-')[0].strip()  # Extracting the file name
+
+        print(blocks_info, "blocks_info")
+        print(file_name, "file_name")
+        return blocks_info, file_name
+
+    def decide_blocks_to_download(self, blocks_info, file_name):
+        max_blocks = max(len(blocks) for blocks in blocks_info.values())
+
+        for node_info, blocks in blocks_info.items():
+            if len(blocks) == max_blocks:
+                self.connect_and_request_blocks(node_info, blocks, file_name)
+                break
+
+    def connect_and_request_blocks(self, node_info, blocks, file_name):
+        print(node_info, "nodoinfo")
+        print(blocks, "blocks")
+        print(file_name, "filename")
+        peer_address, peer_port = node_info.split(':')
+
+        # Connection to the peer
+        peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        peer_socket.connect((peer_address, int(peer_port)))
+
+        # Send the request
+        request_message = FS_TransferProtocol.create_request_message(file_name, blocks)
+        print(request_message)
+        peer_socket.send(request_message.encode())
+
+        # Receive blocks
+        received_blocks = []
+        expected_block_count = len(blocks)
+        while len(received_blocks) < expected_block_count:
+            block = peer_socket.recv(MTU)
+            if not block:
+                break
+            received_blocks.append(block)
+
+        # Process received blocks
+        self.process_received_blocks(received_blocks)
+        peer_socket.close()
+
+    # FUNCOES QUE LIDAM COM AS CONEXÔES UDP
+    def start_udp_listener(self):
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.bind((self.address, self.port))  # Binding to the node's address and port
+
+        print(f"UDP listener started on {self.address}:{self.port}")
+
+        while True:
+            data, addr = udp_socket.recvfrom(MTU)
+            message = data.decode()
+            print(f"Received UDP message from {addr}: {message}")
+
+            if message.startswith("REQUEST"):
+                requested_file_name, requested_blocks = self.parse_request_message(message)
+                print(requested_blocks, "blocos requested")
+                print(requested_file_name, "file requested")
+                self.send_requested_blocks(addr, requested_file_name, requested_blocks)
+
+        # falta implementar quando fechar a udp socket
+        udp_socket.close()
+
+    def process_received_blocks(self, blocks):
+        for block in blocks:
+            print(f"Received block: {block}")
+
+    def parse_request_message(self, request_message):
+        parametros = re.split(r'\||-', request_message)
+        requested_file_name = parametros[1]
+        requested_blocks = ...
+
+        return requested_file_name, requested_blocks
+
+    def send_requested_blocks(self, requester_addr, file_name, blocks):
+        if file_name in self.shared_files:  # Check if the node has the complete file
+            complete_file_blocks = self.divide_file_into_blocks(self.folder_to_share + "/" + file_name)
+
+            if blocks == complete_file_blocks:
+                peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                for block in blocks:
+                    peer_socket.sendto(block, requester_addr)
+                    # Ensure a small delay between block transmissions to prevent packet loss
+                    time.sleep(0.1)
+                peer_socket.close()
+            else:
+                print("Blocks requested do not match the complete file blocks.")
+        else:
+            print("Node does not have the requested file.")
 
     # FECHAR A CONEXAO
     def close_connection(self):
         self.node_socket.close()
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
@@ -168,4 +288,12 @@ if __name__ == "__main__":
         sys.exit(1)
 
     fs_node = FS_Node(address, port, folder_to_share)
-    fs_node.connect_to_tracker()
+
+    udp_listener = threading.Thread(target=fs_node.start_udp_listener)
+    udp_listener.start()
+
+    tcp_listener = threading.Thread(target=fs_node.connect_to_tracker)
+    tcp_listener.start()
+
+    udp_listener.join()
+    tcp_listener.join()

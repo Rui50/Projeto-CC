@@ -41,6 +41,15 @@ class FS_TrackProtocol:
         return f"GET|{file_name}"
 
     @staticmethod
+    def create_get_response_message(blocks_info, file_name):
+        message = f"GET_RESPONSE|{file_name}"
+        if blocks_info:
+            for node_id, blocks in blocks_info.items():
+                block_list = ','.join(map(str, blocks))
+                message += f"-{node_id} with blocks {block_list}"
+        return message
+
+    @staticmethod
     def create_request_message(file_name, blocks):
         message = f"REQUEST|{file_name}:{blocks}"
         return message

@@ -3,9 +3,9 @@ import threading
 
 from FS_TrackProtocol import FS_TrackProtocol
 
+
 # transforma uma string num dicionario
 def string_to_dict(input_string):
-
     pairs = input_string.split('/')
 
     dicionario = {}
@@ -38,8 +38,8 @@ class FS_Tracker:
         self.host = host
         self.port = port
         self.tracker_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.connected_nodes = {}       # guardar os nodos conetados
-        self.current_sharing_files = {} # vai guardar os ficheiros que estão a ser partilhados
+        self.connected_nodes = {}  # guardar os nodos conetados
+        self.current_sharing_files = {}  # vai guardar os ficheiros que estão a ser partilhados
         print(f"Servidor escutando em {self.host}: porta {self.port}")
 
     def start(self):
@@ -85,11 +85,17 @@ class FS_Tracker:
                         message = "file not found"
                     client_socket.send(message.encode())
 
+                elif parsed_message["type"] == "GET":
+                    file_name = parsed_message["file_name"]
+                    blocks_info = self.get_blocks_for_file(file_name)
+                    response_message = FS_TrackProtocol.create_get_response_message(blocks_info, file_name)
+                    client_socket.send(response_message.encode())
+
         except ConnectionResetError:
             print(f"Connection closed with {address[0]}:{address[1]}")
             if node_id in self.connected_nodes:
-                self.remove_currently_sharing(node_id) # remove os seus ficheiros da lista de partilha
-                del self.connected_nodes[node_id] # remove o nodo da lista de nodos conectados
+                self.remove_currently_sharing(node_id)  # remove os seus ficheiros da lista de partilha
+                del self.connected_nodes[node_id]  # remove o nodo da lista de nodos conectados
             client_socket.close()
 
     # FUNCAO RESPONSAVEL POR A MENSAGEM DE LISTAGEM DE FICHEIROS A SER ENVIADOS
@@ -119,6 +125,16 @@ class FS_Tracker:
                 blocks = self.connected_nodes[nodo_id]["shared_files"][file_name]
                 message = FS_TrackProtocol.create_located_message(address, port, file, len(blocks))
                 return message
+
+    def get_blocks_for_file(self, file_name):
+        blocks_info = {}
+
+        # Iterate through connected nodes and gather block information
+        for node_id, node_info in self.connected_nodes.items():
+            if "shared_files" in node_info and file_name in node_info["shared_files"]:
+                blocks_info[node_id] = node_info["shared_files"][file_name]
+
+        return blocks_info
 
     # REMOVE FICHEIROS DE UM NODO DISCONECTADO DA LISTA DE CURRENTLY SHARING
     def remove_currently_sharing(self, node_id):
