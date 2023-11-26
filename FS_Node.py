@@ -55,6 +55,8 @@ class FS_Node:
 
         return blocks
 
+    # DIVIDE UM FICHEIRO EM BLOCOS
+    # APENAS DEVE SER USADA QUANDO O FICHEIRO É INICIALMENTE PARTILHADO
     def divide_file_into_blocks(self, file_path):
         blocks = []
         block_tag = 0
@@ -66,7 +68,7 @@ class FS_Node:
                     break
 
                 block = block_tag.to_bytes(BLOCK_ID_SIZE, 'big') + data
-                print(block)
+                #print(block)
                 blocks.append(block)
                 block_tag += 1
         return blocks
@@ -108,27 +110,6 @@ class FS_Node:
                 file_name = command.split(" ")[1]
                 self.send_get_message(file_name)
                 info = self.receive_get_message()
-
-    # RESPONSAVEL POR OUVIR E LIDAR COM INPUTS DO UTILIZADOR
-    # def listen_for_commands(self):
-    #    while True:
-    #        command = input("Enter a command (e.g., GET <file_name>, LIST, LOCATE): ")
-    #        if command.startswith("LIST"):
-    #            self.send_list_message()  # envia a mensagem para listar os ficheiros
-    #            self.receive_list_message()  # lidar com a mensagem que recebe
-    #        if command.startswith("LOCATE"):
-    #            file_name = command.split(" ")[1]  # Extrai o nome do ficheiro do comando
-
-    #            self.send_locate_message(file_name)
-    #            self.receive_locate_message()
-    #        if command.startswith("GET"):
-    #            file_name = command.split(" ")[1]
-    #            self.send_get_message(file_name)
-    #            info = self.receive_get_message()
-
-    # RESPONSAVEL POR LIDAR COM OS REQUESTS
-    def listen_for_requests(self):
-        print(1)
 
     # FUNCOES PARA ENVIAR E RECEBER AS MESSAGES
     def send_register_message(self):
@@ -205,11 +186,9 @@ class FS_Node:
 
         # Attempting to connect to the peer
         try:
-            # Connection to the peer
+            # Cria uma socket UDP
             peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            #peer_socket.connect((peer_address, int(peer_port)))
 
-            # Send the request
             request_message = FS_TransferProtocol.create_request_message(file_name, blocks)
             print(request_message)
             peer_socket.sendto(request_message.encode(), (peer_address, 9090))
@@ -222,6 +201,7 @@ class FS_Node:
                 if not block:
                     break
                 received_blocks.append(block)
+                print(f"Received block {len(received_blocks) - 1}") # bloco recebido
 
             # Process received blocks
             self.process_received_blocks(received_blocks)
@@ -257,26 +237,30 @@ class FS_Node:
             print(f"Received block: {block}")
 
     def parse_request_message(self, request_message):
-        parametros = re.split(r'\||-', request_message)
-        requested_file_name = parametros[1]
-        requested_blocks = ...
+        parametros = request_message.split('|')[1]
+        file_name, blocks = parametros.split('-')
+        requested_blocks = [int(block) for block in blocks.split(',')]
 
-        return requested_file_name, requested_blocks
+        return file_name, requested_blocks
 
     def send_requested_blocks(self, requester_addr, file_name, blocks):
         if file_name in self.shared_files:  # Check if the node has the complete file
             complete_file_blocks = self.divide_file_into_blocks(self.folder_to_share + "/" + file_name)
 
-            if blocks == complete_file_blocks:
-                peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                for block in blocks:
-                    peer_socket.sendto(block, requester_addr)
-                    print(block)
-                    # Ensure a small delay between block transmissions to prevent packet loss
-                    time.sleep(0.1)
-                peer_socket.close()
-            else:
-                print("Blocks requested do not match the complete file blocks.")
+            peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            for block_tag in blocks:
+                block_tag_bytes = block_tag.to_bytes(BLOCK_ID_SIZE, 'big')
+                for block in complete_file_blocks:
+                    if block.startswith(block_tag_bytes):
+                        peer_socket.sendto(block, requester_addr)
+                        print(f"Sent block {block_tag} to {requester_addr}")
+
+                        #
+
+                        time.sleep(0.1)
+                        break # passar ao prox bloco
+
+            peer_socket.close()
         else:
             print("Node does not have the requested file.")
 
@@ -301,6 +285,7 @@ if __name__ == "__main__":
     host = socket.gethostname()
     fs_node = FS_Node(host, address, port, folder_to_share)
 
+    #threads para udp e tcp
     udp_listener = threading.Thread(target=fs_node.start_udp_listener)
     udp_listener.start()
 
