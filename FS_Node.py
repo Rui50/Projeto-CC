@@ -200,38 +200,47 @@ class FS_Node:
         print(file_name, "filename")
         peer_address, peer_port = node_info.split(':')
 
-        # Connection to the peer
-        peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        peer_socket.connect((peer_address, int(peer_port)))
+        print(peer_address)
+        print(peer_port)
 
-        # Send the request
-        request_message = FS_TransferProtocol.create_request_message(file_name, blocks)
-        print(request_message)
-        peer_socket.send(request_message.encode())
+        # Attempting to connect to the peer
+        try:
+            # Connection to the peer
+            peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            #peer_socket.connect((peer_address, int(peer_port)))
 
-        # Receive blocks
-        received_blocks = []
-        expected_block_count = len(blocks)
-        while len(received_blocks) < expected_block_count:
-            block = peer_socket.recv(MTU)
-            if not block:
-                break
-            received_blocks.append(block)
+            # Send the request
+            request_message = FS_TransferProtocol.create_request_message(file_name, blocks)
+            print(request_message)
+            peer_socket.sendto(request_message.encode(), (peer_address, 9090))
 
-        # Process received blocks
-        self.process_received_blocks(received_blocks)
-        peer_socket.close()
+            # Receive blocks
+            received_blocks = []
+            expected_block_count = len(blocks)
+            while len(received_blocks) < expected_block_count:
+                block = peer_socket.recv(MTU)
+                if not block:
+                    break
+                received_blocks.append(block)
+
+            # Process received blocks
+            self.process_received_blocks(received_blocks)
+            peer_socket.close()
+
+        except ConnectionError as e:
+            print(f"Connection failed: {e}")
 
     # FUNCOES QUE LIDAM COM AS CONEXÔES UDP
     def start_udp_listener(self):
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_socket.bind((self.address, self.port))  # Binding to the node's address and port
+        udp_socket.bind(('0.0.0.0', self.port)) # Binding to the node's address and port
 
         print(f"UDP listener started on {self.address}:{self.port}")
 
         while True:
             data, addr = udp_socket.recvfrom(MTU)
             message = data.decode()
+            #message = data.decode('utf-8')
             print(f"Received UDP message from {addr}: {message}")
 
             if message.startswith("REQUEST"):
@@ -262,6 +271,7 @@ class FS_Node:
                 peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 for block in blocks:
                     peer_socket.sendto(block, requester_addr)
+                    print(block)
                     # Ensure a small delay between block transmissions to prevent packet loss
                     time.sleep(0.1)
                 peer_socket.close()
