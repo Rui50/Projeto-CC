@@ -14,8 +14,9 @@ BLOCK_ID_SIZE = 4
 
 class FS_Node:
 
-    def __init__(self, address, port, folder_to_share):
+    def __init__(self, address, server_address, port, folder_to_share):
         self.address = address
+        self.server_address = server_address
         self.port = port
         self.folder_to_share = folder_to_share
         self.node_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -85,8 +86,8 @@ class FS_Node:
 
     def connect_to_tracker(self):
         try:
-            self.node_socket.connect((self.address, self.port))
-            print(f"Conectado ao FS_Tracker em {self.address}:{self.port}")
+            self.node_socket.connect((self.server_address, self.port))
+            print(f"Conectado ao FS_Tracker em {self.server_address}:{self.port}")
 
             self.send_register_message()
             self.print_shared_files()
@@ -276,7 +277,7 @@ class FS_Node:
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python FS_Node.py <Address> <Port> [Folder_To_Share]")
+        print("Usage: python FS_Node.py <Server-Address> <Port> [Folder_To_Share]")
         sys.exit(1)
 
     address = sys.argv[1]
@@ -287,7 +288,8 @@ if __name__ == "__main__":
         print("Error: The specified folder does not exist.")
         sys.exit(1)
 
-    fs_node = FS_Node(address, port, folder_to_share)
+    host = socket.gethostname()
+    fs_node = FS_Node(host, address, port, folder_to_share)
 
     udp_listener = threading.Thread(target=fs_node.start_udp_listener)
     udp_listener.start()
