@@ -1,6 +1,10 @@
 # /etc/bind
 # apos configurar dns sudo service bind9 restart
-# fazer named-checkconf
+# fazer named-checkconf.local
+
+# cd zones/
+# cat cc2023.zone
+
 
 # dentro do core
 

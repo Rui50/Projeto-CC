@@ -55,8 +55,6 @@ class FS_Node:
 
         return blocks
 
-    # DIVIDE UM FICHEIRO EM BLOCOS
-    # APENAS DEVE SER USADA QUANDO O FICHEIRO É INICIALMENTE PARTILHADO
     def divide_file_into_blocks(self, file_path):
         blocks = []
         block_tag = 0
@@ -68,7 +66,7 @@ class FS_Node:
                     break
 
                 block = block_tag.to_bytes(BLOCK_ID_SIZE, 'big') + data
-                # print(block)
+                #print(block)
                 blocks.append(block)
                 block_tag += 1
         return blocks
@@ -98,7 +96,7 @@ class FS_Node:
             print("Erro: Não foi possível conectar ao FS_Tracker.")
 
         while True:
-            command = input("Enter a command (e.g., GET <file_name>, LIST, LOCATE, EXIT): ")
+            command = input("Enter a command (e.g., GET <file_name>, LIST, LOCATE): ")
             if command.startswith("LIST"):
                 self.send_list_message()  # envia a mensagem para listar os ficheiros
                 self.receive_list_message()  # lidar com a mensagem que recebe
@@ -110,8 +108,8 @@ class FS_Node:
                 file_name = command.split(" ")[1]
                 self.send_get_message(file_name)
                 info = self.receive_get_message()
-            # if command.startswith("EXIT"):
-            #    self.close_connection()
+            if command.startswith("EXIT"):
+                self.send_exit_message()
 
     # FUNCOES PARA ENVIAR E RECEBER AS MESSAGES
     def send_register_message(self):
@@ -134,6 +132,10 @@ class FS_Node:
     def send_get_message(self, file_name):
         get_message = FS_TrackProtocol.create_get_message(file_name)
         self.node_socket.send(get_message.encode())
+
+    def send_exit_message(self):
+        exit_message = FS_TrackProtocol.create_exit_message()
+        self.node_socket.send(exit_message.encode())
 
     # LIDAR COM MENSAGENS RECEBIDAS DO TRACKER
 
@@ -164,7 +166,7 @@ class FS_Node:
             blocks_info[node_info.split('-')[-1]] = blocks  # Extracting just the IP and node
             if not file_name:
                 file_name = node_info.split('-')[0].strip()  # Extracting the file name
-        print("FROM PARSE_GET_RESPONSE")
+
         print(blocks_info, "blocks_info")
         print(file_name, "file_name")
         return blocks_info, file_name
@@ -178,7 +180,6 @@ class FS_Node:
                 break
 
     def connect_and_request_blocks(self, node_info, blocks, file_name):
-        print("FROM CONNECT AND REQUEST BLOCKS")
         print(node_info, "nodoinfo")
         print(blocks, "blocks")
         print(file_name, "filename")
@@ -189,9 +190,10 @@ class FS_Node:
 
         # Attempting to connect to the peer
         try:
-            # Cria uma socket UDP
+            # Connection to the peer
             peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+            # Send the request
             request_message = FS_TransferProtocol.create_request_message(file_name, blocks)
             print(request_message)
             peer_socket.sendto(request_message.encode(), (peer_address, 9090))
@@ -216,14 +218,14 @@ class FS_Node:
     # FUNCOES QUE LIDAM COM AS CONEXÔES UDP
     def start_udp_listener(self):
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_socket.bind(('0.0.0.0', self.port))  # Binding to the node's address and port
+        udp_socket.bind(('0.0.0.0', self.port)) # Binding to the node's address and port
 
         print(f"UDP listener started on {self.address}:{self.port}")
 
         while True:
             data, addr = udp_socket.recvfrom(MTU)
             message = data.decode()
-            # message = data.decode('utf-8')
+            #message = data.decode('utf-8')
             print(f"Received UDP message from {addr}: {message}")
 
             if message.startswith("REQUEST"):
@@ -243,13 +245,13 @@ class FS_Node:
         for block in sorted_blocks:
             file_data += block[BLOCK_ID_SIZE:]  # remove a tag
 
-        with open(f"{file_name}", "wb") as file:
+        with open(f"{self.folder_to_share}/{file_name}", "wb") as file:
             file.write(file_data)
 
     def parse_request_message(self, request_message):
-        parametros = request_message.split('|')[1]
-        file_name, blocks = parametros.split('-')
-        requested_blocks = [int(block) for block in blocks.split(',')]
+        parametros = request_message.split('|')[1]  # Splitting to get 'logs.txt-0,1,2,3'
+        file_name, blocks = parametros.split('-')  # Separating filename and block numbers
+        requested_blocks = [int(block) for block in blocks.split(',')]  # Extracting block numbers as integers
 
         return file_name, requested_blocks
 
@@ -263,10 +265,10 @@ class FS_Node:
                 for block in complete_file_blocks:
                     if block.startswith(block_tag_bytes):
                         peer_socket.sendto(block, requester_addr)
-                        print(f"Sent block {block_tag} to {requester_addr}")
-
+                        print(f"Sent block {block_tag_bytes} to {requester_addr}")
+                        # Ensure a small delay between block transmissions to prevent packet loss
                         time.sleep(0.1)
-                        break  # passar ao prox bloco
+                        break  # Move to the next requested block tag
 
             peer_socket.close()
         else:
@@ -293,7 +295,6 @@ if __name__ == "__main__":
     host = socket.gethostname()
     fs_node = FS_Node(host, address, port, folder_to_share)
 
-    # threads para udp e tcp
     udp_listener = threading.Thread(target=fs_node.start_udp_listener)
     udp_listener.start()
 

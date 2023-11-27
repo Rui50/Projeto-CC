@@ -53,3 +53,7 @@ class FS_TrackProtocol:
     def create_request_message(file_name, blocks):
         message = f"REQUEST|{file_name}:{blocks}"
         return message
+
+    @staticmethod
+    def create_exit_message():
+        return "EXIT"

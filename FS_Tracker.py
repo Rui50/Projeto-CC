@@ -3,6 +3,7 @@ import threading
 
 from FS_TrackProtocol import FS_TrackProtocol
 
+
 # transforma uma string num dicionario
 def string_to_dict(input_string):
     pairs = input_string.split('/')
@@ -90,6 +91,14 @@ class FS_Tracker:
                     response_message = FS_TrackProtocol.create_get_response_message(blocks_info, file_name)
                     client_socket.send(response_message.encode())
 
+                elif parsed_message["type"] == "EXIT":
+                    print(f"Connection closed with {address[0]}:{address[1]}")
+                    if node_id in self.connected_nodes:
+                        self.remove_currently_sharing(node_id)  # remove os seus ficheiros da lista de partilha
+                        del self.connected_nodes[node_id]  # remove o nodo da lista de nodos conectados
+                    client_socket.close()
+                    break
+
         except ConnectionResetError:
             print(f"Connection closed with {address[0]}:{address[1]}")
             if node_id in self.connected_nodes:
@@ -171,12 +180,14 @@ class FS_Tracker:
             file_name = parts[1]
             return {"type": message_type, "file_name": file_name}
 
+        elif message_type == "EXIT":
+            return {"type": message_type}
+
         else:
             return {"type": message_type, "data": message}
 
 
 if __name__ == "__main__":
-    # host = '127.0.0.1'
     host = '10.4.4.1'
     port = 9090
     tracker = FS_Tracker(host, port)
