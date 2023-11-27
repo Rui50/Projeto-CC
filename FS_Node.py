@@ -68,7 +68,7 @@ class FS_Node:
                     break
 
                 block = block_tag.to_bytes(BLOCK_ID_SIZE, 'big') + data
-                #print(block)
+                # print(block)
                 blocks.append(block)
                 block_tag += 1
         return blocks
@@ -98,7 +98,7 @@ class FS_Node:
             print("Erro: Não foi possível conectar ao FS_Tracker.")
 
         while True:
-            command = input("Enter a command (e.g., GET <file_name>, LIST, LOCATE): ")
+            command = input("Enter a command (e.g., GET <file_name>, LIST, LOCATE, EXIT): ")
             if command.startswith("LIST"):
                 self.send_list_message()  # envia a mensagem para listar os ficheiros
                 self.receive_list_message()  # lidar com a mensagem que recebe
@@ -110,6 +110,8 @@ class FS_Node:
                 file_name = command.split(" ")[1]
                 self.send_get_message(file_name)
                 info = self.receive_get_message()
+            # if command.startswith("EXIT"):
+            #    self.close_connection()
 
     # FUNCOES PARA ENVIAR E RECEBER AS MESSAGES
     def send_register_message(self):
@@ -162,7 +164,7 @@ class FS_Node:
             blocks_info[node_info.split('-')[-1]] = blocks  # Extracting just the IP and node
             if not file_name:
                 file_name = node_info.split('-')[0].strip()  # Extracting the file name
-
+        print("FROM PARSE_GET_RESPONSE")
         print(blocks_info, "blocks_info")
         print(file_name, "file_name")
         return blocks_info, file_name
@@ -176,6 +178,7 @@ class FS_Node:
                 break
 
     def connect_and_request_blocks(self, node_info, blocks, file_name):
+        print("FROM CONNECT AND REQUEST BLOCKS")
         print(node_info, "nodoinfo")
         print(blocks, "blocks")
         print(file_name, "filename")
@@ -201,10 +204,10 @@ class FS_Node:
                 if not block:
                     break
                 received_blocks.append(block)
-                print(f"Received block {len(received_blocks) - 1}") # bloco recebido
+                print(f"Received block {len(received_blocks) - 1}")  # bloco recebido
 
             # Process received blocks
-            self.process_received_blocks(received_blocks)
+            self.process_received_blocks(received_blocks, file_name)
             peer_socket.close()
 
         except ConnectionError as e:
@@ -213,14 +216,14 @@ class FS_Node:
     # FUNCOES QUE LIDAM COM AS CONEXÔES UDP
     def start_udp_listener(self):
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_socket.bind(('0.0.0.0', self.port)) # Binding to the node's address and port
+        udp_socket.bind(('0.0.0.0', self.port))  # Binding to the node's address and port
 
         print(f"UDP listener started on {self.address}:{self.port}")
 
         while True:
             data, addr = udp_socket.recvfrom(MTU)
             message = data.decode()
-            #message = data.decode('utf-8')
+            # message = data.decode('utf-8')
             print(f"Received UDP message from {addr}: {message}")
 
             if message.startswith("REQUEST"):
@@ -232,9 +235,16 @@ class FS_Node:
         # falta implementar quando fechar a udp socket
         udp_socket.close()
 
-    def process_received_blocks(self, blocks):
-        for block in blocks:
-            print(f"Received block: {block}")
+    def process_received_blocks(self, blocks, file_name):
+        # sort a lista dos blocos pela tag
+        sorted_blocks = sorted(blocks, key=lambda x: int.from_bytes(x[:BLOCK_ID_SIZE], 'big'))
+
+        file_data = b''  # inicializar
+        for block in sorted_blocks:
+            file_data += block[BLOCK_ID_SIZE:]  # remove a tag
+
+        with open(f"{file_name}", "wb") as file:
+            file.write(file_data)
 
     def parse_request_message(self, request_message):
         parametros = request_message.split('|')[1]
@@ -255,10 +265,8 @@ class FS_Node:
                         peer_socket.sendto(block, requester_addr)
                         print(f"Sent block {block_tag} to {requester_addr}")
 
-                        #
-
                         time.sleep(0.1)
-                        break # passar ao prox bloco
+                        break  # passar ao prox bloco
 
             peer_socket.close()
         else:
@@ -285,7 +293,7 @@ if __name__ == "__main__":
     host = socket.gethostname()
     fs_node = FS_Node(host, address, port, folder_to_share)
 
-    #threads para udp e tcp
+    # threads para udp e tcp
     udp_listener = threading.Thread(target=fs_node.start_udp_listener)
     udp_listener.start()
 

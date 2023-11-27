@@ -3,7 +3,6 @@ import threading
 
 from FS_TrackProtocol import FS_TrackProtocol
 
-
 # transforma uma string num dicionario
 def string_to_dict(input_string):
     pairs = input_string.split('/')
@@ -177,6 +176,7 @@ class FS_Tracker:
 
 
 if __name__ == "__main__":
+    # host = '127.0.0.1'
     host = '10.4.4.1'
     port = 9090
     tracker = FS_Tracker(host, port)
