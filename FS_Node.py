@@ -137,6 +137,11 @@ class FS_Node:
         exit_message = FS_TrackProtocol.create_exit_message()
         self.node_socket.send(exit_message.encode())
 
+    def send_update_to_tracker(self, file_name, block):
+        update_message = FS_TrackProtocol.create_update_message(file_name, block, self.address)
+        self.node_socket.send(update_message.encode())
+
+
     # LIDAR COM MENSAGENS RECEBIDAS DO TRACKER
 
     def receive_list_message(self):
@@ -207,6 +212,7 @@ class FS_Node:
                     break
                 received_blocks.append(block)
                 print(f"Received block {len(received_blocks) - 1}")  # bloco recebido
+                self.send_update_to_tracker(file_name, block)
 
             # Process received blocks
             self.process_received_blocks(received_blocks, file_name)

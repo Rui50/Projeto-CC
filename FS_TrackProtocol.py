@@ -55,5 +55,10 @@ class FS_TrackProtocol:
         return message
 
     @staticmethod
+    def create_update_message(file_name, block_tag, address):
+        message = f"UPDATE|{file_name}-{block_tag}-{address}"
+        return message
+
+    @staticmethod
     def create_exit_message():
         return "EXIT"
