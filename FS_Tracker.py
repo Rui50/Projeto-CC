@@ -138,14 +138,22 @@ class FS_Tracker:
 
     # funcao temporaria (para apenas 1 fs_node com o ficheiro)
     def get_file_details_from_node(self, file_name):
-        for nodo_id in self.connected_nodes:
-            if file_name in self.connected_nodes[nodo_id]["shared_files"]:
-                address = self.connected_nodes[nodo_id]["address"]
-                port = self.connected_nodes[nodo_id]["port"]
-                file = file_name
-                blocks = self.connected_nodes[nodo_id]["shared_files"][file_name]
-                message = FS_TrackProtocol.create_located_message(address, port, file, len(blocks))
-                return message
+        nodes_info = []
+        for node_id, node_info in self.connected_nodes.items():
+            if "shared_files" in node_info and file_name in node_info["shared_files"]:
+                address = node_info["address"]
+                blocks = node_info["shared_files"][file_name]
+                nodes_info.append({
+                    "address": address,
+                    "file_name": file_name,
+                    "blocks": blocks
+                })
+
+        if nodes_info:
+            message = FS_TrackProtocol.create_located_message(nodes_info)
+        else:
+            message = "File not found on any node."
+        return message
 
     def get_blocks_for_file(self, file_name):
         blocks_info = {}

@@ -22,8 +22,14 @@ class FS_TrackProtocol:
         return f"LOCATE|{file_name}"
 
     @staticmethod
-    def create_located_message(address, port, file_name, blocks):
-        return f"File {file_name} with {blocks} blocks found in {address}:{port}"
+    def create_located_message(nodes_info):
+        message = "File found at:\n"
+        for node_info in nodes_info:
+            address = node_info["address"]
+            file_name = node_info["file_name"]
+            blocks = node_info["blocks"]
+            message += f"Node {address} - File {file_name} with blocks {blocks}\n"
+        return message
 
     @staticmethod
     def create_list_request_message():
