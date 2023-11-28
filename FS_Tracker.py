@@ -93,9 +93,9 @@ class FS_Tracker:
 
                 elif parsed_message["type"] == "UPDATE":
                     file_name = parsed_message["file_name"]
-                    block = parsed_message["block"]
-                    node_ip = parsed_message["node_id"]
-                    self.update_node(file_name, block, node_ip)
+                    block_tag = parsed_message["block_tag"]
+                    self.update_node(file_name, block_tag, node_id)
+                    print(self.connected_nodes)
 
                 elif parsed_message["type"] == "EXIT":
                     print(f"Connection closed with {address[0]}:{address[1]}")
@@ -121,18 +121,12 @@ class FS_Tracker:
 
     def update_node(self, file_name, block, node_id):
         if node_id in self.connected_nodes:
-            if "shared_files" not in self.connected_nodes[node_id]:
-                # caso de o nodo nao ter nenhum ficheiro
-                self.connected_nodes[node_id]["shared_files"] = {file_name: [block]}
+            if file_name not in self.connected_nodes[node_id]["shared_files"]:
+                # caso ainda nao tenha o ficheiro
+                self.connected_nodes[node_id]["shared_files"][file_name] = [block]
             else:
-                if file_name not in self.connected_nodes[node_id]["shared_files"]:
-                    # caso ainda nao tenha o ficheiro
-                    self.connected_nodes[node_id]["shared_files"][file_name] = [block]
-                else:
-                    # caso so tenha de adicionar o bloco
-                    self.connected_nodes[node_id]["shared_files"][file_name].append(block)
-
-                    # FUNCAO QUE DA UPDATE AOS FICHEIROS QUE ESTAO A SER PARTILHADSO
+                # caso so tenha de adicionar o bloco
+                self.connected_nodes[node_id]["shared_files"][file_name].append(block)
 
     # adiciona os "novos" ficheiros a lista de partilha
     def update_shared_files(self, shared_files):
@@ -203,10 +197,11 @@ class FS_Tracker:
             return {"type": message_type}
 
         elif message_type == "UPDATE":
-            file_name = parts[1]
+            parts = parts[1].split('-')
+            file_name = parts[0]
+            block_tag = int(parts[1])  # Assuming block tag is an integer
             node_id = parts[2]
-            block = int(parts[3])  # Assuming a single block
-            return {"type": message_type, "file_name": file_name, "node_id": node_id, "block": block}
+            return {"type": message_type, "file_name": file_name, "block_tag": block_tag, "node_id": node_id}
 
         else:
             return {"type": message_type, "data": message}

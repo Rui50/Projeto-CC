@@ -12,6 +12,19 @@ MTU = 1024  # restantes 4 bytes para numerar os blocos
 BLOCK_ID_SIZE = 4
 
 
+def get_local_ip():
+    ip_address = ''
+    try:
+        # Create a temporary socket to get the local IP
+        temp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        temp_socket.connect(("8.8.8.8", 80))  # Google's DNS server
+        ip_address = temp_socket.getsockname()[0]
+        temp_socket.close()
+    except socket.error as e:
+        print(f"Error occurred: {e}")
+    return ip_address
+
+
 class FS_Node:
 
     def __init__(self, address, server_address, port, folder_to_share):
@@ -66,7 +79,7 @@ class FS_Node:
                     break
 
                 block = block_tag.to_bytes(BLOCK_ID_SIZE, 'big') + data
-                #print(block)
+                # print(block)
                 blocks.append(block)
                 block_tag += 1
         return blocks
@@ -86,8 +99,8 @@ class FS_Node:
 
     def connect_to_tracker(self):
         try:
-            self.node_socket.connect((self.server_address, self.port))
-            print(f"Conectado ao FS_Tracker em {self.server_address}:{self.port}")
+            self.node_socket.connect((self.server_address, 9090))
+            print(f"Conectado ao FS_Tracker em {self.server_address}:{9090}")
 
             self.send_register_message()
             self.print_shared_files()
@@ -140,7 +153,6 @@ class FS_Node:
     def send_update_to_tracker(self, file_name, block):
         update_message = FS_TrackProtocol.create_update_message(file_name, block, self.address)
         self.node_socket.send(update_message.encode())
-
 
     # LIDAR COM MENSAGENS RECEBIDAS DO TRACKER
 
@@ -212,7 +224,8 @@ class FS_Node:
                     break
                 received_blocks.append(block)
                 print(f"Received block {len(received_blocks) - 1}")  # bloco recebido
-                self.send_update_to_tracker(file_name, block)
+                block_tag = int.from_bytes(block[:BLOCK_ID_SIZE], 'big')
+                self.send_update_to_tracker(file_name, block_tag)
 
             # Process received blocks
             self.process_received_blocks(received_blocks, file_name)
@@ -224,14 +237,14 @@ class FS_Node:
     # FUNCOES QUE LIDAM COM AS CONEXÔES UDP
     def start_udp_listener(self):
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_socket.bind(('0.0.0.0', self.port)) # Binding to the node's address and port
+        udp_socket.bind(('0.0.0.0', 9090))  # Binding to the node's address and port
 
-        print(f"UDP listener started on {self.address}:{self.port}")
+        print(f"UDP listener started on {self.address}:{9090}")
 
         while True:
             data, addr = udp_socket.recvfrom(MTU)
             message = data.decode()
-            #message = data.decode('utf-8')
+            # message = data.decode('utf-8')
             print(f"Received UDP message from {addr}: {message}")
 
             if message.startswith("REQUEST"):
@@ -298,8 +311,8 @@ if __name__ == "__main__":
         print("Error: The specified folder does not exist.")
         sys.exit(1)
 
-    host = socket.gethostname()
-    fs_node = FS_Node(host, address, port, folder_to_share)
+    ip = get_local_ip()
+    fs_node = FS_Node(ip, address, port, folder_to_share)
 
     udp_listener = threading.Thread(target=fs_node.start_udp_listener)
     udp_listener.start()
