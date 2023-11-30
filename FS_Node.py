@@ -34,6 +34,7 @@ class FS_Node:
         self.folder_to_share = folder_to_share
         self.node_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.shared_files = self.get_shared_files() if folder_to_share else {}  # caso de nao ter pasta
+        self.received_blocks = {}
 
     # a partir do folder pega nos ficheiros que vai partilhar
     def get_shared_files(self):
@@ -167,43 +168,57 @@ class FS_Node:
     def receive_get_message(self):
         received_message = self.node_socket.recv(MTU).decode()
         blocks_info, file_name = self.parse_get_response(received_message)
-        self.decide_blocks_to_download(blocks_info, file_name)
+        blocks_to_nodes, max_blocks = self.distribute_blocks(blocks_info)
+
+        print(blocks_to_nodes, "BLOCOS TO NODES")
+        for node, blocks in blocks_to_nodes.items():
+            self.connect_and_request_blocks(node, blocks, file_name, max_blocks)
         return received_message
 
     def parse_get_response(self, response):
+        print(response)
         blocks_info = {}
         file_name = None
 
         responses = response.split('|')[1:]
 
         for resp in responses:
-            parts = resp.split(' with blocks ')
-            node_info = parts[0]
-            blocks = [int(block) for block in parts[1].split(',')]
-            blocks_info[node_info.split('-')[-1]] = blocks  # Extracting just the IP and node
-            if not file_name:
-                file_name = node_info.split('-')[0].strip()  # Extracting the file name
-
-        print(blocks_info, "blocks_info")
-        print(file_name, "file_name")
+            parts = resp.split('-')
+            for part in parts:
+                if 'with blocks' in part:
+                    node_info = part.split(' with blocks ')[0]
+                    blocks = [int(block) for block in part.split(' with blocks ')[1].split(',')]
+                    blocks_info[node_info.split('-')[-1]] = blocks  # Extracting just the IP and node
+                if not file_name:
+                    file_name = part.split('-')[0].strip()  # Extracting the file name
         return blocks_info, file_name
 
-    def decide_blocks_to_download(self, blocks_info, file_name):
-        max_blocks = max(len(blocks) for blocks in blocks_info.values())
+    def distribute_blocks(self, nodes_blocks):
+        # algoritmo - simple round-robin load balancing strategy
+        nodes = list(nodes_blocks.keys())
+        num_nodes = len(nodes)
+        node_index = 0
+        blocks_to_nodes = {}
 
-        for node_info, blocks in blocks_info.items():
-            if len(blocks) == max_blocks:
-                self.connect_and_request_blocks(node_info, blocks, file_name)
-                break
+        max_blocks = max([max(blocks) for blocks in nodes_blocks.values()]) + 1
 
-    def connect_and_request_blocks(self, node_info, blocks, file_name):
-        print(node_info, "nodoinfo")
-        print(blocks, "blocks")
-        print(file_name, "filename")
+        for file_block in range(max_blocks):
+            # encontra o proximo nodo que tenha o bloco
+            while file_block not in nodes_blocks[nodes[node_index]]:
+                # passa ao proximo nodo
+                node_index = (node_index + 1) % num_nodes
+            # Atribuir este bloco a este nó
+            if nodes[node_index] not in blocks_to_nodes:
+                blocks_to_nodes[nodes[node_index]] = []
+            blocks_to_nodes[nodes[node_index]].append(file_block)
+            # passa ao proximo nodo
+            node_index = (node_index + 1) % num_nodes
+
+        print(blocks_to_nodes)
+        return blocks_to_nodes, max_blocks
+
+    def connect_and_request_blocks(self, node_info, blocks, file_name, max_blocks):
         peer_address, peer_port = node_info.split(':')
-
-        print(peer_address)
-        print(peer_port)
 
         # Attempting to connect to the peer
         try:
@@ -216,23 +231,69 @@ class FS_Node:
             peer_socket.sendto(request_message.encode(), (peer_address, 9090))
 
             # Receive blocks
-            received_blocks = []
+            x = 0
             expected_block_count = len(blocks)
-            while len(received_blocks) < expected_block_count:
+
+            if file_name not in self.received_blocks:
+                self.received_blocks[file_name] = []
+
+            while x < expected_block_count:
                 block = peer_socket.recv(MTU)
-                if not block:
-                    break
-                received_blocks.append(block)
-                print(f"Received block {len(received_blocks) - 1}")  # bloco recebido
+                self.received_blocks[file_name].append(block)
+
+                print(f"Received block {len(self.received_blocks[file_name]) - 1}")  # block received
                 block_tag = int.from_bytes(block[:BLOCK_ID_SIZE], 'big')
                 self.send_update_to_tracker(file_name, block_tag)
+                x = x+1
+
+                if file_name not in self.shared_files:
+                    self.shared_files[file_name] = []
+                self.shared_files[file_name].append(block_tag)
 
             # Process received blocks
-            self.process_received_blocks(received_blocks, file_name)
+            self.process_received_blocks(file_name, max_blocks)
             peer_socket.close()
 
         except ConnectionError as e:
             print(f"Connection failed: {e}")
+
+    """def connect_and_request_blocks(self, node_info, blocks, file_name, max_blocks):
+        peer_address, peer_port = node_info.split(':')
+
+        # Attempting to connect to the peer
+        try:
+            # Connection to the peer
+            peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            # Send the request
+            request_message = FS_TransferProtocol.create_request_message(file_name, blocks)
+            print(request_message)
+            peer_socket.sendto(request_message.encode(), (peer_address, 9090))
+            
+            # Receive blocks
+            received_blocks = []
+            expected_block_count = len(blocks)
+            while len(received_blocks) < expected_block_count:
+                block = peer_socket.recv(MTU)
+                received_blocks.append(block)
+
+                if file_name not in self.received_blocks:
+                    self.received_blocks[file_name] = {}
+
+                print(f"Received block {len(received_blocks) - 1}")  # block received
+                block_tag = int.from_bytes(block[:BLOCK_ID_SIZE], 'big')
+                self.send_update_to_tracker(file_name, block_tag)
+
+                if file_name not in self.shared_files:
+                    self.shared_files[file_name] = []
+                self.shared_files[file_name].append(block_tag)
+
+            # Process received blocks
+            self.process_received_blocks(received_blocks, file_name, max_blocks)
+            peer_socket.close()
+
+        except ConnectionError as e:
+            print(f"Connection failed: {e}")"""
 
     # FUNCOES QUE LIDAM COM AS CONEXÔES UDP
     def start_udp_listener(self):
@@ -250,22 +311,56 @@ class FS_Node:
             if message.startswith("REQUEST"):
                 requested_file_name, requested_blocks = self.parse_request_message(message)
                 print(requested_blocks, "blocos requested")
-                print(requested_file_name, "file requested")
                 self.send_requested_blocks(addr, requested_file_name, requested_blocks)
 
         # falta implementar quando fechar a udp socket
         udp_socket.close()
 
-    def process_received_blocks(self, blocks, file_name):
-        # sort a lista dos blocos pela tag
-        sorted_blocks = sorted(blocks, key=lambda x: int.from_bytes(x[:BLOCK_ID_SIZE], 'big'))
+    def process_received_blocks(self, file_name, max_blocks):
 
-        file_data = b''  # inicializar
-        for block in sorted_blocks:
-            file_data += block[BLOCK_ID_SIZE:]  # remove a tag
+        if len(self.received_blocks[file_name]) == max_blocks:
+            # Sort blocks based on their tags (first 4 bytes)
+            sorted_blocks = sorted(self.received_blocks[file_name], key=lambda block: block[:BLOCK_ID_SIZE])
 
-        with open(f"{self.folder_to_share}/{file_name}", "wb") as file:
-            file.write(file_data)
+            # Remove the tag
+            block_data = [block[BLOCK_ID_SIZE:] for block in sorted_blocks]
+
+            # Write the data to the file
+            with open(f"{self.folder_to_share}/{file_name}", "wb") as file:
+                for data in block_data:
+                    file.write(data)
+
+            # Optionally, you can clear the received_blocks list for this file
+            self.received_blocks[file_name] = []
+
+
+    """def process_received_blocks(self, received_blocks, file_name, max_blocks):
+        # Check if we already have some blocks for this file
+        #if file_name not in self.received_blocks:
+        #    self.received_blocks[file_name] = {}
+
+        # Process each received block
+        for block in received_blocks:
+            # Extract the block number and data
+            block_number = int.from_bytes(block[:BLOCK_ID_SIZE], 'big')
+            block_data = block[BLOCK_ID_SIZE:]
+
+            # Store the block data in the dictionary
+            self.received_blocks[file_name][block_number] = block_data
+
+        # Check if we have all the blocks
+        if len(self.received_blocks[file_name]) == max_blocks:
+            # Create a sorted list of all the block numbers
+            block_numbers = sorted(self.received_blocks[file_name].keys())
+
+            # Open the file for writing
+            with open(f"{self.folder_to_share}/{file_name}", "wb") as file:
+                # Write each block to the file in order
+                for block_number in block_numbers:
+                    file.write(self.received_blocks[file_name][block_number])
+
+            # Clear the blocks for this file
+            del self.received_blocks[file_name]"""
 
     def parse_request_message(self, request_message):
         parametros = request_message.split('|')[1]  # Splitting to get 'logs.txt-0,1,2,3'
@@ -275,7 +370,23 @@ class FS_Node:
         return file_name, requested_blocks
 
     def send_requested_blocks(self, requester_addr, file_name, blocks):
-        if file_name in self.shared_files:  # Check if the node has the complete file
+        # Para o caso de o ficheiro ainda esteja a ser downloaded
+        if file_name in self.received_blocks:
+            peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            for block_tag in blocks:
+                block_tag_bytes = block_tag.to_bytes(BLOCK_ID_SIZE, 'big')
+                for block in self.received_blocks[file_name]:
+                    if block.startswith(block_tag_bytes):
+                        peer_socket.sendto(block, requester_addr)
+                        print(f"Sent block {block_tag_bytes} to {requester_addr}")
+                        # Ensure a small delay between block transmissions to prevent packet loss
+                        time.sleep(5)
+                        break  # Move to the next requested block tag
+
+            peer_socket.close()
+
+        # Caso em que o nodo tem o ficheiro inteiro
+        elif file_name in self.shared_files:
             complete_file_blocks = self.divide_file_into_blocks(self.folder_to_share + "/" + file_name)
 
             peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -286,7 +397,7 @@ class FS_Node:
                         peer_socket.sendto(block, requester_addr)
                         print(f"Sent block {block_tag_bytes} to {requester_addr}")
                         # Ensure a small delay between block transmissions to prevent packet loss
-                        time.sleep(0.1)
+                        time.sleep(5)
                         break  # Move to the next requested block tag
 
             peer_socket.close()
@@ -322,3 +433,4 @@ if __name__ == "__main__":
 
     udp_listener.join()
     tcp_listener.join()
+
