@@ -10,22 +10,16 @@ def string_to_dict(input_string):
 
     dicionario = {}
 
-    # Iterating through each pair in the list
     for pair in pairs:
-        # Splitting each pair by colon to separate key and value
         parts = pair.split(':')
 
-        # Checking if the pair has both key and value
         if len(parts) == 2:
             key, value = parts
-            # Processing the key
-            key = key.strip().strip('"')  # Removing spaces and quotes from the key
+            key = key.strip().strip('"')
 
-            # Processing the value
             if value == '[]':
                 dicionario[key] = []
             else:
-                # Removing brackets from the value and converting it to a list
                 value = value.strip().strip('[]')
                 value = [int(num) for num in value.split(',') if num]  # Converting to integers
                 dicionario[key] = value
@@ -56,54 +50,55 @@ class FS_Tracker:
     # FUNCAO RESPONSAVEL POR LIDAR COM AS MENSAGENS DO NODO
     def handle_node_connection(self, client_socket, address):
         node_id = f"{address[0]}:{address[1]}"
-        shared_files = {}  # Files being shared
 
         try:
             while True:
                 received_message = client_socket.recv(1024).decode()
-                parsed_message = self.parse_message(received_message)
+                messages = received_message.split("\n")  # Split the data into separate messages
+                for message in messages:
+                    parsed_message = self.parse_message(message)
 
-                if parsed_message["type"] == "REG":
-                    node_info = parsed_message["node_info"]
-                    self.connected_nodes[node_id] = node_info
-                    print(f"Registered FS_Node: {node_info}")
+                    if parsed_message["type"] == "REG":
+                        node_info = parsed_message["node_info"]
+                        self.connected_nodes[node_id] = node_info
+                        print(f"Registered FS_Node: {node_info}")
 
-                    if "shared_files" in node_info:
-                        shared_files = node_info["shared_files"]
-                        self.save_shared_files(node_id, shared_files)
-                        self.update_shared_files(shared_files)
+                        if "shared_files" in node_info:
+                            shared_files = node_info["shared_files"]
+                            self.save_shared_files(node_id, shared_files)
+                            self.update_shared_files(shared_files)
 
-                elif parsed_message["type"] == "LIST":
-                    # Send the list of files being shared
-                    message = self.list_files_being_shared(client_socket)
-                    client_socket.send(message.encode())
+                    elif parsed_message["type"] == "LIST":
+                        # Envia a lista dos ficheiros que estão a ser partilhados
+                        message = self.list_files_being_shared(client_socket)
+                        client_socket.send(message.encode())
 
-                elif parsed_message["type"] == "LOCATE":
-                    file_name = parsed_message["file_name"]
-                    message = self.get_file_details_from_node(file_name)
-                    if message is None:
-                        message = "file not found"
-                    client_socket.send(message.encode())
+                    elif parsed_message["type"] == "LOCATE":
+                        file_name = parsed_message["file_name"]
+                        message = self.get_file_details_from_node(file_name)
+                        if message is None:
+                            message = "file not found"
+                        client_socket.send(message.encode())
 
-                elif parsed_message["type"] == "GET":
-                    file_name = parsed_message["file_name"]
-                    blocks_info = self.get_blocks_for_file(file_name)
-                    response_message = FS_TrackProtocol.create_get_response_message(blocks_info, file_name)
-                    client_socket.send(response_message.encode())
+                    elif parsed_message["type"] == "GET":
+                        file_name = parsed_message["file_name"]
+                        blocks_info = self.get_blocks_for_file(file_name)
+                        response_message = FS_TrackProtocol.create_get_response_message(blocks_info, file_name)
+                        client_socket.send(response_message.encode())
 
-                elif parsed_message["type"] == "UPDATE":
-                    file_name = parsed_message["file_name"]
-                    block_tag = parsed_message["block_tag"]
-                    self.update_node(file_name, block_tag, node_id)
-                    print(self.connected_nodes)
+                    elif parsed_message["type"] == "UPDATE":
+                        file_name = parsed_message["file_name"]
+                        block_tag = parsed_message["block_tag"]
+                        self.update_node(file_name, block_tag, node_id)
+                        print(self.connected_nodes)
 
-                elif parsed_message["type"] == "EXIT":
-                    print(f"Connection closed with {address[0]}:{address[1]}")
-                    if node_id in self.connected_nodes:
-                        self.remove_currently_sharing(node_id)  # remove os seus ficheiros da lista de partilha
-                        del self.connected_nodes[node_id]  # remove o nodo da lista de nodos conectados
-                    client_socket.close()
-                    break
+                    elif parsed_message["type"] == "EXIT":
+                        print(f"Connection closed with {address[0]}:{address[1]}")
+                        if node_id in self.connected_nodes:
+                            self.remove_currently_sharing(node_id)  # remove os seus ficheiros da lista de partilha
+                            del self.connected_nodes[node_id]  # remove o nodo da lista de nodos conectados
+                        client_socket.close()
+                        break
 
         except ConnectionResetError:
             print(f"Connection closed with {address[0]}:{address[1]}")
@@ -114,7 +109,6 @@ class FS_Tracker:
 
     # FUNCAO RESPONSAVEL POR A MENSAGEM DE LISTAGEM DE FICHEIROS A SER ENVIADOS
     def list_files_being_shared(self, client_socket):
-        # Prepare message to send based on shared_files
         files_info = self.current_sharing_files if self.current_sharing_files else {}
         message = FS_TrackProtocol.create_list_send_message(files_info)
         return message
@@ -158,7 +152,6 @@ class FS_Tracker:
     def get_blocks_for_file(self, file_name):
         blocks_info = {}
 
-        # Iterate through connected nodes and gather block information
         for node_id, node_info in self.connected_nodes.items():
             if "shared_files" in node_info and file_name in node_info["shared_files"]:
                 blocks_info[node_id] = node_info["shared_files"][file_name]
@@ -184,7 +177,7 @@ class FS_Tracker:
             node_info = {
                 "address": parts[1],
                 "port": int(parts[2]),
-                "shared_files": {}  # Initialize an empty dictionary to store shared files
+                "shared_files": {}
             }
             dicionario = string_to_dict(parts[3])
             node_info["shared_files"] = dicionario
@@ -207,7 +200,7 @@ class FS_Tracker:
         elif message_type == "UPDATE":
             parts = parts[1].split('-')
             file_name = parts[0]
-            block_tag = int(parts[1])  # Assuming block tag is an integer
+            block_tag = int(parts[1])
             node_id = parts[2]
             return {"type": message_type, "file_name": file_name, "block_tag": block_tag, "node_id": node_id}
 

@@ -42,6 +42,7 @@ class FS_TrackProtocol:
             file_list = '/'.join([f"{file_name}:{blocks}" for file_name, blocks in files_info.items()])
             message += f"|{file_list}"
         return message
+
     @staticmethod
     def create_get_message(file_name):
         return f"GET|{file_name}"
