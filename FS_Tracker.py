@@ -28,9 +28,10 @@ def string_to_dict(input_string):
 
 
 class FS_Tracker:
-    def __init__(self, host, port):
+    def __init__(self, host, port, host_name):
         self.host = host
         self.port = port
+        self.host_name = host_name
         self.tracker_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connected_nodes = {}  # guardar os nodos conetados
         self.current_sharing_files = {}  # vai guardar os ficheiros que estão a ser partilhados
@@ -54,6 +55,15 @@ class FS_Tracker:
         try:
             while True:
                 received_message = client_socket.recv(1024).decode()
+                if not received_message:
+                    print(f"Connection closed with {address[0]}:{address[1]}")
+                    if node_id in self.connected_nodes:
+                        self.remove_files_when_disconnect(node_id)  # remove all files from sharedfiles
+                        #self.remove_currently_sharing(node_id)  # remove os seus ficheiros da lista de partilha
+                        del self.connected_nodes[node_id]  # remove o nodo da lista de nodos conectados
+                        print(self.current_sharing_files)
+                    break
+
                 messages = received_message.split("\n")  # Split the data into separate messages
                 for message in messages:
                     parsed_message = self.parse_message(message)
@@ -95,7 +105,7 @@ class FS_Tracker:
                     elif parsed_message["type"] == "EXIT":
                         print(f"Connection closed with {address[0]}:{address[1]}")
                         if node_id in self.connected_nodes:
-                            self.remove_currently_sharing(node_id)  # remove os seus ficheiros da lista de partilha
+                            self.remove_files_when_disconnect(node_id)  # remove os seus ficheiros da lista de partilha
                             del self.connected_nodes[node_id]  # remove o nodo da lista de nodos conectados
                         client_socket.close()
                         break
@@ -103,9 +113,21 @@ class FS_Tracker:
         except ConnectionResetError:
             print(f"Connection closed with {address[0]}:{address[1]}")
             if node_id in self.connected_nodes:
-                self.remove_currently_sharing(node_id)  # remove os seus ficheiros da lista de partilha
+                self.remove_files_when_disconnect(node_id)  # remove os seus ficheiros da lista de partilha
                 del self.connected_nodes[node_id]  # remove o nodo da lista de nodos conectados
+        finally:
             client_socket.close()
+
+    def remove_files_when_disconnect(self, node_id):
+        shared_files = self.connected_nodes[node_id]['shared_files']
+
+        for file_name in shared_files:
+            other_nodes_sharing_file = [id_nodo for id_nodo in self.connected_nodes if
+                                        file_name in self.connected_nodes[id_nodo][
+                                            'shared_files'] and id_nodo != node_id]
+
+            if not other_nodes_sharing_file:
+                del self.current_sharing_files[file_name]
 
     # FUNCAO RESPONSAVEL POR A MENSAGEM DE LISTAGEM DE FICHEIROS A SER ENVIADOS
     def list_files_being_shared(self, client_socket):
@@ -158,14 +180,6 @@ class FS_Tracker:
 
         return blocks_info
 
-    # REMOVE FICHEIROS DE UM NODO DISCONECTADO DA LISTA DE CURRENTLY SHARING
-    def remove_currently_sharing(self, node_id):
-        if node_id in self.connected_nodes:
-            shared_files = self.connected_nodes[node_id].get("shared_files", {})
-            for file_name in shared_files.keys():
-                if file_name in self.current_sharing_files:
-                    del self.current_sharing_files[file_name]
-
     # FUNCAO QUE FAZ O PARSING DA MENSAGEM
     @staticmethod
     def parse_message(message):
@@ -211,5 +225,6 @@ class FS_Tracker:
 if __name__ == "__main__":
     host = '10.4.4.1'
     port = 9090
-    tracker = FS_Tracker(host, port)
+    host_name = socket.gethostname()
+    tracker = FS_Tracker(host, port, host_name)
     tracker.start()

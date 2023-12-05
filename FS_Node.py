@@ -10,6 +10,7 @@ from FS_TrackProtocol import FS_TrackProtocol  # FS_TrackProtocol
 
 MTU = 1024  # restantes 4 bytes para numerar os blocos
 BLOCK_ID_SIZE = 4
+CHECK_SUM = 2
 
 
 # FUNCAO AUXILIAR UTILIZADA PARA SABER O IP DO NODO
@@ -26,16 +27,24 @@ def get_local_ip():
     return ip_address
 
 
+def checksumCheck(data):
+    checksum = 0
+    for byte in data:
+        checksum ^= byte
+    return checksum
+
+
 class FS_Node:
 
-    def __init__(self, address, server_address, port, folder_to_share):
+    def __init__(self, node_name, address, server_address, port, folder_to_share):
+        self.node_name = node_name
         self.address = address
         self.server_address = server_address
         self.port = port
         self.folder_to_share = folder_to_share
         self.node_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.shared_files = self.get_shared_files() if folder_to_share else {}  # caso de nao ter pasta
-        self.received_blocks = {} # blocos que está a receber
+        self.received_blocks = {}  # blocos que está a receber
         self.ack_tracker = {}  # dic usado para dar track aos acks recebidos, contem BLOCO_ID : BOOL
 
     # a partir do folder pega nos ficheiros que vai partilhar
@@ -79,12 +88,15 @@ class FS_Node:
 
         with open(file_path, 'rb') as file:
             while True:
-                data = file.read(MTU - BLOCK_ID_SIZE)
+                data = file.read(MTU - BLOCK_ID_SIZE - CHECK_SUM)
                 if not data:
                     break
 
                 block = block_tag.to_bytes(BLOCK_ID_SIZE, 'big') + data
-                blocks.append(block)
+                checksum = checksumCheck(block)
+                full_block = block + checksum.to_bytes(CHECK_SUM, 'big')
+
+                blocks.append(full_block)
                 block_tag += 1
         return blocks
 
@@ -101,6 +113,16 @@ class FS_Node:
 
     # CONNECTION
 
+    def handle_ping(self):
+        while True:
+            try:
+                received_message = self.node_socket.recv(1024).decode()
+                if received_message == 'Ping':
+                    self.node_socket.sendall(b'Pong')
+            except socket.error as e:
+                print(f"Connection closed with {self.server_address}:{9090}: {e}")
+                break
+
     def connect_to_tracker(self):
         try:
             self.node_socket.connect((self.server_address, 9090))
@@ -110,11 +132,11 @@ class FS_Node:
             self.send_register_message()
             # mostra os ficheiros que o nodo vai partilhar
             self.print_shared_files()
-
         except ConnectionRefusedError:
             print("Erro: Não foi possível conectar ao FS_Tracker.")
 
         while True:
+
             command = input("Enter a command (e.g., GET <file_name>, LIST, LOCATE): ")
             if command.startswith("LIST"):
                 self.send_list_message()  # envia a mensagem para listar os ficheiros
@@ -242,6 +264,7 @@ class FS_Node:
         try:
             # Conexão udp ao outro peer
             peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            peer_socket.settimeout(10)
 
             # cria e envia a mensagem de request dos blocos
             request_message = FS_TransferProtocol.create_request_message(file_name, blocks)
@@ -252,34 +275,52 @@ class FS_Node:
             x = 0
             # blocos que está a espera de receber
             expected_block_count = len(blocks)
+            print(expected_block_count, "BLOCOS EXPECTED")
 
             if file_name not in self.received_blocks:
                 self.received_blocks[file_name] = []
 
+            #received_block_ids = set()
             while x < expected_block_count:
-                block = peer_socket.recv(MTU)
+                try:
+                    block_data = peer_socket.recv(MTU)
 
-                # block_tag = int.from_bytes(block[:BLOCK_ID_SIZE], 'big')
+                    #block_tag = int.from_bytes(block_data[:BLOCK_ID_SIZE], 'big')
 
-                # if block_tag in received_block_ids:
-                #    continue
+                    #if block_tag in received_block_ids:
+                    #    continue
 
-                # received_block_ids.add(block_tag)
+                    #received_block_ids.add(block_tag)
 
-                self.received_blocks[file_name].append(block)
+                    checksum_received = int.from_bytes(block_data[-2:], 'big')  # Assuming last 2 bytes are checksum
+                    block = block_data[:-2]  # Exclude the last 2 bytes (checksum) to get the data
+                    if checksum_received == checksumCheck(block):
+                        self.received_blocks[file_name].append(block)
+                        # socket.timeout(5) para o ack
 
-                print(f"Received block {len(self.received_blocks[file_name]) - 1}")  # block received
-                block_tag = int.from_bytes(block[:BLOCK_ID_SIZE], 'big')
-                self.send_update_to_tracker(file_name, block_tag)
-                x = x + 1
+                        block_tag = int.from_bytes(block[:BLOCK_ID_SIZE], 'big')
+                        print(f"Received block {block_tag}")  # block received
+                        self.send_update_to_tracker(file_name, block_tag)
+                        x = x + 1
 
-                # cria e envia a mensagem ack
-                ack_message = FS_TransferProtocol.ack_message(block_tag)
-                peer_socket.sendto(ack_message.encode(), (peer_address, 9090))
+                        # cria e envia a mensagem ack
+                        ack_message = FS_TransferProtocol.ack_message(block_tag)
+                        print(f"ACK FOR BLOCK {block_tag} SENT")
+                        peer_socket.sendto(ack_message.encode(), (peer_address, 9090))
+                        peer_socket.sendto(ack_message.encode(), (peer_address, 9090))
+                        peer_socket.sendto(ack_message.encode(), (peer_address, 9090))
 
-                if file_name not in self.shared_files:
-                    self.shared_files[file_name] = []
-                self.shared_files[file_name].append(block_tag)
+                        if file_name not in self.shared_files:
+                            self.shared_files[file_name] = []
+                        self.shared_files[file_name].append(block_tag)
+
+                    # else:
+                    #    block_tag = int.from_bytes(block[:BLOCK_ID_SIZE], 'big')
+                    #    request_message = FS_TransferProtocol.create_request_message(file_name, block_tag)
+                    #    print(request_message)
+                    #    peer_socket.sendto(request_message.encode(), (peer_address, 9090))
+                except socket.timeout:
+                    print("timout")
 
             # envia os blocos a esta funçao para lidar com eles
             self.process_received_blocks(file_name, max_blocks)
@@ -301,7 +342,7 @@ class FS_Node:
             # message = data.decode('utf-8')
             if message.startswith("ACK"):
                 ack_block_id = int(message.split("|")[1])
-                self.ack_tracker[ack_block_id] = True  #recebeu o ack
+                self.ack_tracker[ack_block_id] = True  # recebeu o ack
 
                 print("Received acknowledgment:", message)
             else:
@@ -334,21 +375,23 @@ class FS_Node:
                 for data in block_data:
                     file.write(data)
 
-            # reset nos blocos recebidos
-            self.received_blocks[file_name] = []
-
 
     # Envia os blocos requested
     def send_requested_blocks(self, requester_addr, file_name, blocks):
         self.ack_tracker = {block: False for block in blocks}
         # Para o caso de o ficheiro ainda esteja a ser downloaded
         if file_name in self.received_blocks:
+            blocks_to_send = self.received_blocks[file_name].copy()
             peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             for block_tag in blocks:
                 block_tag_bytes = block_tag.to_bytes(BLOCK_ID_SIZE, 'big')
-                for block in self.received_blocks[file_name]:
+                for block in blocks_to_send:
                     if block.startswith(block_tag_bytes):
-                        peer_socket.sendto(block, requester_addr)
+                        checksum = checksumCheck(block)
+                        block_with_checksum = block + checksum.to_bytes(CHECK_SUM, 'big')
+
+                        peer_socket.sendto(block_with_checksum, requester_addr)
+                        #peer_socket.sendto(block, requester_addr)
                         print(f"Sent block {block_tag_bytes} to {requester_addr}")
                         time.sleep(2)
                         break
@@ -377,7 +420,19 @@ class FS_Node:
             for block_index, ack_status in self.ack_tracker.items():
                 block_index_bytes = block_index.to_bytes(BLOCK_ID_SIZE, 'big')
                 if not ack_status:
-                    if file_name in self.shared_files:
+
+                    if file_name in self.received_blocks:
+                        peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                        for block in self.received_blocks[file_name]:
+                            if block.startswith(block_index_bytes):
+                                checksum = checksumCheck(block)
+                                block_with_checksum = block + checksum.to_bytes(CHECK_SUM, 'big')
+
+                                peer_socket.sendto(block_with_checksum, requester_addr)
+                                print(f"Sent block {block_index} to {requester_addr}")
+                                time.sleep(2)
+
+                    elif file_name in self.shared_files:
                         complete_file_blocks = self.divide_file_into_blocks(self.folder_to_share + "/" + file_name)
 
                         peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -387,14 +442,6 @@ class FS_Node:
                                 print(f"Sent block {block_index} to {requester_addr}")
                                 time.sleep(2)
                                 break
-
-                    elif file_name in self.received_blocks:
-                        peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                        for block in self.received_blocks[file_name]:
-                            if block.startswith(block_index_bytes):
-                                peer_socket.sendto(block, requester_addr)
-                                print(f"Sent block {block_index} to {requester_addr}")
-                                time.sleep(2)
 
                         peer_socket.close()
         self.ack_tracker = {}
@@ -419,6 +466,7 @@ if __name__ == "__main__":
 
     address = sys.argv[1]
     port = int(sys.argv[2])
+    node_name = socket.gethostname()
     folder_to_share = sys.argv[3] if len(sys.argv) >= 4 else None
 
     if folder_to_share and not os.path.isdir(folder_to_share):
@@ -426,7 +474,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     ip = get_local_ip()
-    fs_node = FS_Node(ip, address, port, folder_to_share)
+    server_address = socket.gethostbyname(address)
+    fs_node = FS_Node(node_name, ip, server_address, port, folder_to_share)
 
     udp_listener = threading.Thread(target=fs_node.start_udp_listener)
     udp_listener.start()
