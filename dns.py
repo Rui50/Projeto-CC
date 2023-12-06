@@ -18,3 +18,6 @@
 
 # em codigo
 # getHostByName
+
+
+# SOCKET TIMEOUT

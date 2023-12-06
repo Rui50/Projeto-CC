@@ -155,7 +155,7 @@ class FS_Node:
     # FUNCOES PARA ENVIAR AS MENSAGENS
     def send_register_message(self):
         node_info = {
-            "address": self.address,
+            "address": self.node_name,
             "port": 9090,
             "files_info": self.get_shared_files_info()
         }
@@ -179,7 +179,8 @@ class FS_Node:
         self.node_socket.send(exit_message.encode())
 
     def send_update_to_tracker(self, file_name, block):
-        update_message = FS_TrackProtocol.create_update_message(file_name, block, self.address)
+        # update_message = FS_TrackProtocol.create_update_message(file_name, block, self.address) without DNS
+        update_message = FS_TrackProtocol.create_update_message(file_name, block, self.node_name)
         self.node_socket.send(update_message.encode())
 
     # LIDAR COM MENSAGENS RECEBIDAS DO TRACKER
@@ -260,6 +261,7 @@ class FS_Node:
 
     def connect_and_request_blocks(self, node_info, blocks, file_name, max_blocks):
         peer_address, peer_port = node_info.split(':')
+        peer_name = socket.gethostbyaddr(peer_address)
         # received_block_ids = set()
         try:
             # Conexão udp ao outro peer
@@ -269,8 +271,8 @@ class FS_Node:
             # cria e envia a mensagem de request dos blocos
             request_message = FS_TransferProtocol.create_request_message(file_name, blocks)
             print(request_message)
-            peer_socket.sendto(request_message.encode(), (peer_address, 9090))
-
+            #peer_socket.sendto(request_message.encode(), (peer_address, 9090))
+            peer_socket.sendto(request_message.encode(), (peer_name[0], 9090))
             # x usado para contar os blocos recebidos
             x = 0
             # blocos que está a espera de receber
@@ -280,17 +282,17 @@ class FS_Node:
             if file_name not in self.received_blocks:
                 self.received_blocks[file_name] = []
 
-            #received_block_ids = set()
+            # received_block_ids = set()
             while x < expected_block_count:
                 try:
                     block_data = peer_socket.recv(MTU)
 
-                    #block_tag = int.from_bytes(block_data[:BLOCK_ID_SIZE], 'big')
+                    # block_tag = int.from_bytes(block_data[:BLOCK_ID_SIZE], 'big')
 
-                    #if block_tag in received_block_ids:
+                    # if block_tag in received_block_ids:
                     #    continue
 
-                    #received_block_ids.add(block_tag)
+                    # received_block_ids.add(block_tag)
 
                     checksum_received = int.from_bytes(block_data[-2:], 'big')  # Assuming last 2 bytes are checksum
                     block = block_data[:-2]  # Exclude the last 2 bytes (checksum) to get the data
@@ -334,8 +336,8 @@ class FS_Node:
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_socket.bind(('0.0.0.0', 9090))  # Binding to the node's address and port
 
-        print(f"UDP listener started on {self.address}:{9090}")
-
+        # print(f"UDP listener started on {self.address}:{9090}")
+        print(f"UDP listener started on {self.node_name}:{9090}")
         while True:
             data, addr = udp_socket.recvfrom(MTU)
             message = data.decode()
@@ -375,7 +377,6 @@ class FS_Node:
                 for data in block_data:
                     file.write(data)
 
-
     # Envia os blocos requested
     def send_requested_blocks(self, requester_addr, file_name, blocks):
         self.ack_tracker = {block: False for block in blocks}
@@ -391,7 +392,7 @@ class FS_Node:
                         block_with_checksum = block + checksum.to_bytes(CHECK_SUM, 'big')
 
                         peer_socket.sendto(block_with_checksum, requester_addr)
-                        #peer_socket.sendto(block, requester_addr)
+                        # peer_socket.sendto(block, requester_addr)
                         print(f"Sent block {block_tag_bytes} to {requester_addr}")
                         time.sleep(2)
                         break
