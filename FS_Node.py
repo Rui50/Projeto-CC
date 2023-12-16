@@ -260,8 +260,9 @@ class FS_Node:
         return blocks_to_nodes, max_blocks
 
     def connect_and_request_blocks(self, node_info, blocks, file_name, max_blocks):
-        peer_address, peer_port = node_info.split(':')
-        peer_name = socket.gethostbyaddr(peer_address)
+        #peer_address, peer_port = node_info.split(':')
+        peer_name = node_info
+        peer_address = socket.gethostbyname(peer_name)
         # received_block_ids = set()
         try:
             # Conexão udp ao outro peer
@@ -271,8 +272,8 @@ class FS_Node:
             # cria e envia a mensagem de request dos blocos
             request_message = FS_TransferProtocol.create_request_message(file_name, blocks)
             print(request_message)
-            #peer_socket.sendto(request_message.encode(), (peer_address, 9090))
-            peer_socket.sendto(request_message.encode(), (peer_name[0], 9090))
+            peer_socket.sendto(request_message.encode(), (peer_address, 9090))
+            # AQUI AQUI peer_socket.sendto(request_message.encode(), (peer_name[0], 9090))
             # x usado para contar os blocos recebidos
             x = 0
             # blocos que está a espera de receber
@@ -358,9 +359,6 @@ class FS_Node:
                     target=self.send_requested_blocks,
                     args=(addr, requested_file_name, requested_blocks)
                 ).start()
-
-        # falta implementar quando fechar a udp socket
-        udp_socket.close()
 
     # funcao que pega nos blocos recebidos, coloca por ordem e cria o ficheiro
     def process_received_blocks(self, file_name, max_blocks):
@@ -474,9 +472,12 @@ if __name__ == "__main__":
         print("Error: The specified folder does not exist.")
         sys.exit(1)
 
+    hostname = socket.gethostname()
+    hostname += '.cc2023.cc'
+    ip_address = socket.gethostbyname(hostname)
     ip = get_local_ip()
     server_address = socket.gethostbyname(address)
-    fs_node = FS_Node(node_name, ip, server_address, port, folder_to_share)
+    fs_node = FS_Node(node_name, ip_address, server_address, port, folder_to_share)
 
     udp_listener = threading.Thread(target=fs_node.start_udp_listener)
     udp_listener.start()

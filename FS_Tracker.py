@@ -50,13 +50,16 @@ class FS_Tracker:
 
     # FUNCAO RESPONSAVEL POR LIDAR COM AS MENSAGENS DO NODO
     def handle_node_connection(self, client_socket, address):
-        node_id = f"{address[0]}:{address[1]}"
+        node_id,_,_ = socket.gethostbyaddr(address[0])
+        print(node_id)
+        #node_id = f"{address[0]}:{address[1]}"
 
         try:
             while True:
                 received_message = client_socket.recv(1024).decode()
                 if not received_message:
-                    print(f"Connection closed with {address[0]}:{address[1]}")
+                    #print(f"Connection closed with {address[0]}:{address[1]}")
+                    print(f"Connection closed with {node_id}")
                     if node_id in self.connected_nodes:
                         self.remove_files_when_disconnect(node_id)  # remove all files from sharedfiles
                         #self.remove_currently_sharing(node_id)  # remove os seus ficheiros da lista de partilha
@@ -103,7 +106,8 @@ class FS_Tracker:
                         print(self.connected_nodes)
 
                     elif parsed_message["type"] == "EXIT":
-                        print(f"Connection closed with {address[0]}:{address[1]}")
+                        # print(f"Connection closed with {address[0]}:{address[1]}")
+                        print(f"Connection closed with {node_id}")
                         if node_id in self.connected_nodes:
                             self.remove_files_when_disconnect(node_id)  # remove os seus ficheiros da lista de partilha
                             del self.connected_nodes[node_id]  # remove o nodo da lista de nodos conectados
@@ -111,7 +115,8 @@ class FS_Tracker:
                         break
 
         except ConnectionResetError:
-            print(f"Connection closed with {address[0]}:{address[1]}")
+            # print(f"Connection closed with {address[0]}:{address[1]}")
+            print(f"Connection closed with {node_id}")
             if node_id in self.connected_nodes:
                 self.remove_files_when_disconnect(node_id)  # remove os seus ficheiros da lista de partilha
                 del self.connected_nodes[node_id]  # remove o nodo da lista de nodos conectados
